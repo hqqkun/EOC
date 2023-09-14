@@ -182,5 +182,3 @@
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
      ))
 
-(display (gensym 'x.))
-(display (gensym 'x.))
