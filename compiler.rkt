@@ -54,12 +54,7 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
-
-;! uniquify pass
-;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;* helper function for implement uniquify-exp
+; * helper functions for implement passes
 (define fresh-var-gen
   (lambda (num)
     (lambda (var)
@@ -71,6 +66,9 @@
             "."
             (number->string cur-num))))))
 )
+
+;! uniquify pass
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define fresh-var (fresh-var-gen 1))
 
@@ -100,7 +98,54 @@
 
 ;; remove-complex-opera* : Lvar -> Lvar^mon
 (define (remove-complex-opera* p)
-  (error "TODO: code goes here (remove-complex-opera*)"))
+  (match p
+    [(Program info e) (Program info (rco-exp e))]))
+
+(define tmp-fresh-var (fresh-var-gen 1))
+
+; rco-atom : exp -> 
+(define rco-atom
+  (lambda (exp)
+    (match exp
+      [(Int n) (values exp '())]
+      [(Var var) (values exp '())]
+      [else
+        (let
+          ( [atom-exp (rco-exp exp)]
+            [new-var (tmp-fresh-var 'tmp)])
+          (values (Var new-var) (cons new-var atom-exp)))]))
+)
+
+; rco-exp : exp -> anf_exp
+(define rco-exp
+  (lambda (exp)
+    (match exp
+      [(Int n) exp]
+      [(Var var) exp]
+      [(Prim op es)
+        (define-values (new-atoms new-binds)
+          (for/lists (new-atoms new-binds) ([e es]) (rco-atom e)))
+        (let loop ([binds new-binds])
+          (cond
+            [(null? binds) (Prim op new-atoms)]
+            [(null? (car binds)) (loop (cdr binds))]
+            [else 
+              (let
+                ( [alist (car binds)])
+                (Let (car alist) (cdr alist) (loop (cdr binds))))]))]
+      [(Let x exp body)
+        (Let x (rco-exp exp) (rco-exp body))]
+      ))
+)
+
+
+
+
+
+
+
+
+
 
 ;; explicate-control : Lvar^mon -> Cvar
 (define (explicate-control p)
@@ -128,11 +173,14 @@
 (define compiler-passes
   `(
      ;; Uncomment the following passes as you finish them.
-     ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
-     ;; ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
+    ;  ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
+     ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ;; ("instruction selection" ,select-instructions ,interp-x86-0)
      ;; ("assign homes" ,assign-homes ,interp-x86-0)
      ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
      ))
+
+(display (gensym 'x.))
+(display (gensym 'x.))
