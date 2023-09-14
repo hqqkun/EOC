@@ -54,21 +54,49 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (uniquify-exp env)
-  (lambda (e)
-    (match e
-      [(Var x)
-       (error "TODO: code goes here (uniquify-exp Var)")]
-      [(Int n) (Int n)]
-      [(Let x e body)
-       (error "TODO: code goes here (uniquify-exp Let)")]
+
+
+;! uniquify pass
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;* helper function for implement uniquify-exp
+(define fresh-var-gen
+  (lambda (num)
+    (lambda (var)
+      (let ([cur-num num])
+        (set! num (+ 1 num))
+        (string->symbol
+          (string-append
+            (symbol->string var)
+            "."
+            (number->string cur-num))))))
+)
+
+(define fresh-var (fresh-var-gen 1))
+
+; uniquify-exp : env * exp -> exp
+(define uniquify-exp
+  (lambda (env exp)
+    (match exp
+      [(Var x)  (Var (dict-ref env x))]
+      [(Int n) exp]
       [(Prim op es)
-       (Prim op (for/list ([e es]) ((uniquify-exp env) e)))])))
+        (Prim op (for/list ([e es]) (uniquify-exp env e)))]
+      [(Let x exp body)
+        (let* 
+          ( [new-exp (uniquify-exp env exp)]
+            [new-x (fresh-var x)])
+          (Let new-x new-exp (uniquify-exp (dict-set env x new-x) body)))]
+      ))
+)
 
 ;; uniquify : Lvar -> Lvar
 (define (uniquify p)
   (match p
-    [(Program info e) (Program info ((uniquify-exp '()) e))]))
+    [(Program info e) (Program info (uniquify-exp '() e))]))
+
+;! uniquify pass done
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; remove-complex-opera* : Lvar -> Lvar^mon
 (define (remove-complex-opera* p)
@@ -100,7 +128,7 @@
 (define compiler-passes
   `(
      ;; Uncomment the following passes as you finish them.
-     ;; ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
+     ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
      ;; ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ;; ("instruction selection" ,select-instructions ,interp-x86-0)
