@@ -96,6 +96,9 @@
 ;! uniquify pass done
 ;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+
+;! remove-complex-opera* pass 
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; remove-complex-opera* : Lvar -> Lvar^mon
 (define (remove-complex-opera* p)
   (match p
@@ -138,18 +141,52 @@
       ))
 )
 
+;! remove-complex-opera* pass done
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-
-
-
-
-
-
+;! explicate-control pass 
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; explicate-control : Lvar^mon -> Cvar
 (define (explicate-control p)
-  (error "TODO: code goes here (explicate-control)"))
+  (match p
+    [(Program info body)
+      (let ( [new-body (explicate-tail body)])
+        (CProgram info (list (cons 'start new-body))))])
+)
+
+; explicate-tail :  anf_exp -> Cvar_tail
+(define explicate-tail
+  (lambda (exp)
+    (match exp
+      [(Var x) (Return exp)]
+      [(Int n) (Return exp)]
+      [(Prim op es) (Return exp)] 
+      [(Let x exp body)
+        (let ( [tail-body (explicate-tail body)])
+          (explicate-assign x exp tail-body))]
+      [else (error "explicate-tail unhandled case" exp)]))
+)
+
+; explicate-assign : var * anf_exp * Cvar_tail -> Cvar_tail
+(define (explicate-assign x exp cont)
+  (match exp
+    [(Int n) (Seq (Assign (Var x) exp) cont)]
+    [(Var var) (Seq (Assign (Var x) exp) cont)]
+    [(Prim op es) (Seq (Assign (Var x) exp) cont)]
+    [(Let y rhs body)
+      (let ( [new-cont (explicate-assign x body cont)])
+        (explicate-assign y rhs new-cont))]
+    [else (error "explicate-assign unhandled case" exp)]
+    )
+)
+
+
+
+;! explicate-control pass done
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 ;; select-instructions : Cvar -> x86var
 (define (select-instructions p)
@@ -173,12 +210,18 @@
 (define compiler-passes
   `(
      ;; Uncomment the following passes as you finish them.
-    ;  ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
+     ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
-     ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
+     ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ;; ("instruction selection" ,select-instructions ,interp-x86-0)
      ;; ("assign homes" ,assign-homes ,interp-x86-0)
      ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
      ))
 
+(define pro '(program () (let ([y (let ([x 20])
+(+ x (let ([x 22]) x)))])
+y)))
+
+(define cpro (explicate-control (remove-complex-opera* (uniquify (parse-program pro)))))
+(display cpro)
