@@ -7,6 +7,7 @@
 (require "type-check-Lvar.rkt")
 (require "type-check-Cvar.rkt")
 (require "utilities.rkt")
+(require "interp.rkt")
 (provide (all-defined-out))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -186,9 +187,104 @@
 ;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
+;! select-instructions pass
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 ;; select-instructions : Cvar -> x86var
 (define (select-instructions p)
-  (error "TODO: code goes here (select-instructions)"))
+  (match p
+    [(CProgram info tails) 
+      (let
+        ( [blocks (for/list ( [tail tails])
+            (cons 
+              (car tail) 
+              (Block '() (select-tail (cdr tail)))))]
+          [conclusion
+            (cons 
+              'conclusion
+              (Block '() (list (Retq))))])
+        (X86Program info (cons conclusion blocks)))])
+)
+
+(define (atom? exp)
+  (match exp
+    [(Int _) #t]
+    [(Var _) #t]
+    [(Prim _ _) #f]
+    [else (error "atom? unhandled case" exp)])
+)
+
+(define (prim? exp)
+  (match exp
+    [(Int _) #f]
+    [(Var _) #f]
+    [(Prim _ _) #t]
+    [else (error "prim? unhandled case" exp)])
+)
+
+
+; select-tail : tail -> ListOf(Instr)
+(define (select-tail tail)
+  (match tail
+    [(Seq stmt tail)
+      (append (select-stmt stmt)
+        (select-tail tail))]
+    [(Return exp)
+      (append
+        (select-stmt (Assign (Reg 'rax) exp))
+        (list (Jmp 'conclusion)))]
+    [else (error "select-tail unhandled case" tail)])
+)
+
+; select-stmt : stmt -> ListOf(Instr)
+(define (select-stmt stmt)
+  (match stmt
+    [(Assign x exp)
+      (cond
+        [(atom? exp) (list (Instr 'movq (list (select-atom exp) (select-atom x))))]
+        [(prim? exp) (select-prim x exp)]
+        [else (error "cannot handle Assign" exp)]
+      )]
+    [else (error "select-stmt unhandled case" stmt)])
+)
+
+
+; select-prim : x * prim-exp -> ListOf(Instr)
+(define (select-prim x prim-exp)
+  (let ( [atom-x (select-atom x)])
+    (match prim-exp    
+      [(Prim '- (list e1))
+        (let ( [neg-instr (Instr 'negq (list atom-x))])
+          (if (equal? x e1)
+            neg-instr
+            (list (Instr 'movq (list (select-atom e1) atom-x))
+            neg-instr)))]
+      [(Prim '+ (list e1 e2))
+        (cond
+          [(equal? e1 x) (list (Instr 'addq (list (select-atom e2) atom-x)))]
+          [(equal? e2 x) (list (Instr 'addq (list (select-atom e1) atom-x)))]
+          [else (list 
+                  (Instr 'movq (list (select-atom e1) atom-x))
+                  (Instr 'addq (list (select-atom e2) atom-x)))])]
+      [(Prim 'read '())
+        (list 
+          (Callq 'read_int 0)
+          (Instr 'movq (list (Reg 'rax) atom-x)))]
+      [else (error "select-prim unhandled case" prim-exp)]))
+)
+
+; select-atom : atom -> arg
+(define (select-atom atom)
+  (match atom
+    [(Int num) (Imm num)]
+    [(Var x) atom]
+    [(Reg r) atom]
+    [else (error "select-atom unhandled case" exp)])
+)
+
+;! select-instructions pass done
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 
 ;; assign-homes : x86var -> x86var
 (define (assign-homes p)
@@ -211,15 +307,21 @@
      ("uniquify" ,uniquify ,interp-Lvar ,type-check-Lvar)
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
-     ;; ("instruction selection" ,select-instructions ,interp-x86-0)
-     ;; ("assign homes" ,assign-homes ,interp-x86-0)
+     ("instruction selection" ,select-instructions ,interp-pseudo-x86-0)
+    ;  ("assign homes" ,assign-homes ,interp-x86-0)
      ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
-     ))
+))
 
-(define pro '(program () (let ([y (let ([x 20])
-(+ x (let ([x 22]) x)))])
-y)))
 
-(define cpro (explicate-control (remove-complex-opera* (uniquify (parse-program pro)))))
-(display cpro)
+
+
+(define pro '(program () (let ([a 42])
+(let ([b a])
+b))
+))
+
+(define pro-ast (parse-program pro))
+
+(pretty-display  (select-instructions 
+  (explicate-control (remove-complex-opera* (uniquify pro-ast)))))

@@ -1,3 +1,3 @@
-(let ([y (let ([x 20])
-  (+ x (let ([x 22]) x)))])
+(let ([y (let ([x (read)])
+  (+ x (let ([x (+ (+ 12 (read)) (- 18))]) x)))])
 y)
