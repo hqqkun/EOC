@@ -155,7 +155,7 @@
     [(Program info body)
       (define-values (new-body var-set) (explicate-tail body (set)))
       (CProgram 
-        (dict-set info 'locals-vars var-set) 
+        (dict-set info 'locals-vars (set->list var-set)) 
         (list (cons 'start new-body)))])
 )
 
@@ -174,15 +174,16 @@
 
 ; explicate-assign : var * anf_exp * Cvar_tail -> values(Cvar_tail, var-set)
 (define (explicate-assign x exp cont var-set)
+  (define new-var-set (set-add var-set x))
+  (define seq (Seq (Assign (Var x) exp) cont))
   (match exp
-    [(Int n) (values (Seq (Assign (Var x) exp) cont) (set-add var-set x))]
-    [(Var var) (values (Seq (Assign (Var x) exp) cont) (set-add var-set x))]
-    [(Prim op es) (values (Seq (Assign (Var x) exp) cont) (set-add var-set x))]
+    [(Int n) (values seq new-var-set)]
+    [(Var var) (values seq new-var-set)]
+    [(Prim op es) (values seq new-var-set)]
     [(Let y rhs body)
       (define-values (new-cont new-var-set) (explicate-assign x body cont var-set))
       (explicate-assign y rhs new-cont new-var-set)]
-    [else (error "explicate-assign unhandled case" exp)]
-    )
+    [else (error "explicate-assign unhandled case" exp)])
 )
 
 ;! explicate-control pass done
@@ -288,13 +289,103 @@
 ;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
+;! assign-homes pass 
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 ;; assign-homes : x86var -> x86var
 (define (assign-homes p)
-  (error "TODO: code goes here (assign-homes)"))
+  (match p
+    [(X86Program info compound-blocks)
+      (define local-vars (dict-ref info 'locals-vars))
+      (define stack-offset 0)
+      (define var-offset-map (make-hash))
+      (let loop ( [local-vars local-vars])
+        (if (null? local-vars)
+          1
+          (begin
+            (set! stack-offset (+ stack-offset 8))
+            (dict-set! var-offset-map (car local-vars) stack-offset)
+            (loop (cdr local-vars)))))
+      (if (= (modulo stack-offset 16) 0)
+        0
+        (set! stack-offset (+ stack-offset 8)))
+      (X86Program
+        (dict-set info 'stack-space stack-offset)
+        (for/list [(compound-block compound-blocks)]
+          (cons 
+            (car compound-block) 
+            (assign-homes-block (cdr compound-block) var-offset-map))))])
+)
+
+
+(define (assign-homes-block block var-offset-map)
+  (match block
+    [(Block info instrs)
+      (Block info
+        (for/list ( [instr instrs])
+          (assign-homes-instr instr var-offset-map)))])
+)
+
+(define (assign-homes-instr instr var-offset-map)
+  (match instr
+    [(Instr name arg-list)
+      (Instr name 
+        (for/list ( [arg arg-list])
+          (assign-homes-arg arg var-offset-map)))]
+    [else instr]
+  )
+)
+
+(define (assign-homes-arg arg var-offset-map)
+  (match arg
+    [(Var var) (Deref 'rbp (- (dict-ref var-offset-map var)))]
+    [else arg])
+)
+
+;! assign-homes pass done
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+;! patch-instructions pass
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; patch-instructions : x86var -> x86int
 (define (patch-instructions p)
-  (error "TODO: code goes here (patch-instructions)"))
+  (match p
+    [(X86Program info compound-blocks)
+      (X86Program
+        info
+        (for/list [(compound-block compound-blocks)]
+          (cons 
+            (car compound-block) 
+            (patch-instructions-block (cdr compound-block)))))])
+)
+
+(define (patch-instructions-block block)
+  (match block
+    [(Block info instrs)
+      (define instrs-list
+        (for/list ([instr instrs])
+          (patch-instructions-instr instr)))
+      (Block info (apply append instrs-list))])
+)
+
+(define (patch-instructions-instr instr)
+  (match instr
+    [(Instr name (list arg0 arg1))
+      (match* (arg0 arg1)
+        [((Deref _ n1) (Deref _ n2))
+          (list
+            (Instr 'movq (list arg0 (Reg 'rax)))
+            (Instr name (list (Reg 'rax) arg1)))]
+        [(_ _) (list instr)])]
+    [else (list instr)])
+)
+
+;! patch-instructions pass done
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
 
 ;; prelude-and-conclusion : x86int -> x86int
 (define (prelude-and-conclusion p)
@@ -310,8 +401,8 @@
      ("remove complex opera*" ,remove-complex-opera* ,interp-Lvar ,type-check-Lvar)
      ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ("instruction selection" ,select-instructions ,interp-pseudo-x86-0)
-    ;  ("assign homes" ,assign-homes ,interp-x86-0)
-     ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
+     ("assign homes" ,assign-homes ,interp-x86-0)
+     ("patch instructions" ,patch-instructions ,interp-x86-0)
      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
 ))
 
@@ -323,7 +414,19 @@
     (+ x y)))
 ))
 
-(define pro-ast (parse-program pro))
+; (define pro-ast (parse-program pro))
 
-(pretty-display  
-  (explicate-control (remove-complex-opera* (uniquify pro-ast))))
+
+
+; (pretty-display  (select-instructions
+;   (explicate-control (remove-complex-opera* (uniquify pro-ast)))))
+
+; (newline)
+
+; (pretty-display  (assign-homes (select-instructions
+;   (explicate-control (remove-complex-opera* (uniquify pro-ast))))))
+
+; (newline)
+
+; (pretty-display (patch-instructions (assign-homes (select-instructions
+;   (explicate-control (remove-complex-opera* (uniquify pro-ast)))))))
