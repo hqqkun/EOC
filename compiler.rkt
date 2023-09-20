@@ -153,32 +153,34 @@
 (define (explicate-control p)
   (match p
     [(Program info body)
-      (let ( [new-body (explicate-tail body)])
-        (CProgram info (list (cons 'start new-body))))])
+      (define-values (new-body var-set) (explicate-tail body (set)))
+      (CProgram 
+        (dict-set info 'locals-vars var-set) 
+        (list (cons 'start new-body)))])
 )
 
-; explicate-tail :  anf_exp -> Cvar_tail
+; explicate-tail :  anf_exp -> values(Cvar_tail, var-set)
 (define explicate-tail
-  (lambda (exp)
+  (lambda (exp var-set)
     (match exp
-      [(Var x) (Return exp)]
-      [(Int n) (Return exp)]
-      [(Prim op es) (Return exp)] 
+      [(Var x) (values (Return exp) var-set)]
+      [(Int n) (values (Return exp) var-set)]
+      [(Prim op es) (values (Return exp) var-set)] 
       [(Let x exp body)
-        (let ( [tail-body (explicate-tail body)])
-          (explicate-assign x exp tail-body))]
+        (define-values (tail-body new-var-set) (explicate-tail body var-set))
+        (explicate-assign x exp tail-body new-var-set)]
       [else (error "explicate-tail unhandled case" exp)]))
 )
 
-; explicate-assign : var * anf_exp * Cvar_tail -> Cvar_tail
-(define (explicate-assign x exp cont)
+; explicate-assign : var * anf_exp * Cvar_tail -> values(Cvar_tail, var-set)
+(define (explicate-assign x exp cont var-set)
   (match exp
-    [(Int n) (Seq (Assign (Var x) exp) cont)]
-    [(Var var) (Seq (Assign (Var x) exp) cont)]
-    [(Prim op es) (Seq (Assign (Var x) exp) cont)]
+    [(Int n) (values (Seq (Assign (Var x) exp) cont) (set-add var-set x))]
+    [(Var var) (values (Seq (Assign (Var x) exp) cont) (set-add var-set x))]
+    [(Prim op es) (values (Seq (Assign (Var x) exp) cont) (set-add var-set x))]
     [(Let y rhs body)
-      (let ( [new-cont (explicate-assign x body cont)])
-        (explicate-assign y rhs new-cont))]
+      (define-values (new-cont new-var-set) (explicate-assign x body cont var-set))
+      (explicate-assign y rhs new-cont new-var-set)]
     [else (error "explicate-assign unhandled case" exp)]
     )
 )
@@ -316,12 +318,12 @@
 
 
 
-(define pro '(program () (let ([a 42])
-(let ([b a])
-b))
+(define pro '(program () (let ([x (+ 1 (+ 2 3))])
+  (let ([y (+ x x)])
+    (+ x y)))
 ))
 
 (define pro-ast (parse-program pro))
 
-(pretty-display  (select-instructions 
-  (explicate-control (remove-complex-opera* (uniquify pro-ast)))))
+(pretty-display  
+  (explicate-control (remove-complex-opera* (uniquify pro-ast))))
