@@ -385,11 +385,36 @@
 ;! patch-instructions pass done
 ;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-
+;! prelude-and-conclusion pass
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; prelude-and-conclusion : x86int -> x86int
 (define (prelude-and-conclusion p)
-  (error "TODO: code goes here (prelude-and-conclusion)"))
+  (match p
+    [(X86Program info compound-blocks)
+      (define stack-space (dict-ref info 'stack-space))
+      (define new-compound-blocks 
+        (dict-set compound-blocks 'conclusion 
+          (Block '()
+            (list
+              (Instr 'addq (list (Imm stack-space) (Reg 'rsp)))
+              (Instr 'popq (list (Reg 'rbp)))
+              (Retq)))))
+      (define blocks (dict-set new-compound-blocks 'main 
+        (Block '()
+          (list
+            (Instr 'pushq (list (Reg 'rbp)))
+            (Instr 'movq (list (Reg 'rsp) (Reg 'rbp)))
+            (Instr 'subq (list (Imm stack-space) (Reg 'rsp)))
+            (Jmp 'start)))))
+      (X86Program info blocks)])
+)
+
+
+;! prelude-and-conclusion pass
+;!;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
 
 ;; Define the compiler passes to be used by interp-tests and the grader
 ;; Note that your compiler file (the file that defines the passes)
@@ -403,30 +428,72 @@
      ("instruction selection" ,select-instructions ,interp-pseudo-x86-0)
      ("assign homes" ,assign-homes ,interp-x86-0)
      ("patch instructions" ,patch-instructions ,interp-x86-0)
-     ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
+     ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
 ))
 
 
+; (define (print-x86 p)
+;   (define out-file 
+;     (open-output-file "output.s" #:exists 'truncate))
+;   (match p
+;     [(X86Program info compound-blocks)
+;       (fprintf out-file ".globl main~%")
+;       (for-each
+;         (lambda (compound-block)
+;           (print-x86-block out-file compound-block))
+;         compound-blocks)
+;     ])
+; )
+
+; (define (print-x86-block out-file compound-block)
+;   (define label (car compound-block))
+;   (define block (cdr compound-block))
+;   (match block
+;     [(Block info instrs)
+;       (fprintf out-file "~a:~%" label)
+;       (for-each (lambda (instr)
+;         (print-x86-instr out-file instr)) instrs)
+;       ])
+;   (fprintf out-file "~%")
+; )
 
 
-(define pro '(program () (let ([x (+ 1 (+ 2 3))])
-  (let ([y (+ x x)])
-    (+ x y)))
-))
+; (define (print-x86-instr out-file instr)
+;   (match instr
+;     [(Instr name (list arg0 arg1))
+;         (fprintf out-file 
+;           (format "\t~a ~a, ~a~%" name (arg-string arg0) (arg-string arg1)))]
+;     [(Instr name (list arg0))
+;       (fprintf out-file 
+;           (format "\t~a ~a~%" name (arg-string arg0)))]
+;     [(Jmp label)
+;       (fprintf out-file
+;         (format "\tjmp ~a~%" label))]
+;     [(Call label num)
+;       (fprintf out-file
+;         (format "\tcallq ~a~%" label))]
+;     [(Retq)
+;       (fprintf out-file "\tretq~%")]
+;     [else (error "print-x86-instr unhandled case" instr)]
+;     )
+; )
+
+; (define (arg-string arg)
+;   (match arg
+;     [(Imm num) (format "$~a" num)]
+;     [(Reg reg) (format "%~a" reg)]
+;     [(Deref reg num) (format "~a(%~a)" num reg)]
+;     [else (error "arg-string unhandled case" arg)])
+; )
+
+
+
+; (define pro '(program () (+ (- 5) (- 10))))
 
 ; (define pro-ast (parse-program pro))
 
 
 
-; (pretty-display  (select-instructions
-;   (explicate-control (remove-complex-opera* (uniquify pro-ast)))))
+; (print-x86 (prelude-and-conclusion (patch-instructions (assign-homes (select-instructions
+;   (explicate-control (remove-complex-opera* (uniquify pro-ast))))))))
 
-; (newline)
-
-; (pretty-display  (assign-homes (select-instructions
-;   (explicate-control (remove-complex-opera* (uniquify pro-ast))))))
-
-; (newline)
-
-; (pretty-display (patch-instructions (assign-homes (select-instructions
-;   (explicate-control (remove-complex-opera* (uniquify pro-ast)))))))
